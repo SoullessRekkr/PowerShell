@@ -1,0 +1,161 @@
+#SoullessRekkr
+#UNF Internship
+#ITS System Engineering
+
+Clear
+
+$target = Read-Host -Prompt "Verify that the target employee has been terminated/removed from Active Directory"
+#Test $target to see if input exists in Active Directory
+$ADtest = [bool] (Get-ADUser -Filter {SamAccountName -eq $target})
+#Test $target to see if input has the OU of Domain Admins or Employee
+$DAtest = [bool] (Get-ADPrincipalGroupMembership -Identity $target | select SamAccountName | where {$_.samAccountName -eq "Domain Admins"})
+$Emptest = [bool] (Get-ADPrincipalGroupMembership -Identity $target | select SamAccountName | where {$_.samAccountName -eq "Employee"})
+
+#Using above boolean output to continue script or exit script
+$output = "false"
+do {
+    if ($ADtest -match "true") {
+        if ($DAtest -match "true" -or $Emptest -match "true") {
+            Write-Host "Employee found in Active Directory no futher action needed"
+            exit
+        }
+        else {
+            $output = "true"
+            continue
+        }
+    }
+    else {
+    $output = "true"
+    continue
+    }
+} until ($output -like "true")
+
+Clear
+
+#Menu to select how to modify GPO by either user name or GPO name
+Write-Host "User is not an Employee or is not in Active Directory"
+Write-Host " "
+Write-Host "How do you want to update the GPO Owner?"
+Write-Host "A. By Owner Name"
+Write-Host "B. By GPO DisplayName"
+$option = Read-Host -Prompt "Input an option"
+
+do {
+    Switch ($option) {
+        default {
+            $option = Read-Host -Prompt "You choose a bad input, please try again [A or B]"
+        }
+        A {
+           $permchange = $true
+           Break
+        }
+
+        B {
+            $permchange = $false
+            Break
+        }
+    }
+} until ($option -like "a" -or $option -like "b")
+
+Clear
+
+if ($option -like "a") {
+    Write-Host "Wildcard characters are usable '*'"
+    Write-host "Change the owner of GPOs by Owner name"
+    $OldOwner = Read-Host -Prompt "Please enter the Owner name of the current GPO Owner"
+    Write-Host " "    
+    $GPOPerm = Get-GPO -All | where{$_.Owner -like "*$OldOwner"}
+    #Outputs the list of names of GPO's affect by the script
+    Write-Host $GPOPerm.DisplayName
+    Write-Host " "
+    #The number of GPO's to affected
+    Write-Host $GPOPerm.Count
+    Write-Host " "
+}
+
+if ($option -like "b") {
+    Write-Host "Wildcard characters are usable '*'"
+    $DisplayName = Read-Host -Prompt "Please enter the DisplayName of the GPO's"
+    Write-Host " "
+    $GPOPerm = Get-GPO -All | where{$_.DisplayName -like "$DisplayName"}
+    #Outputs the list of names of GPO's affect by the script
+    Write-Host $GPOPerm.DisplayName
+    Write-Host " "
+    #The number of GPO's to affected
+    Write-Host $GPOPerm.Count
+    Write-Host " "
+}
+
+#Check to see if the user wants to continue to the actual GPO owner change
+$choice = Read-Host -Prompt "Are you sure you want to continue with the listed GPO's [Y or N]"
+
+$continue = $false
+do {
+    switch ($choice) {
+        default {
+            $choice = Read-Host -Prompt "Please try again [Y or N]"
+        }
+        Y {
+            $continue = $true
+            Break
+        }
+        N {
+            $continue = $false
+            Write-Host "Script Terminated By User"
+            Exit
+        }
+    }
+} until ($continue -match "True")
+
+#Change the target users permisson if so desired
+$permoption = Read-Host -Prompt "Change/remove user permissions level in the target GPO's [Y or N]"
+$NewOwner = Read-Host -Prompt "Enter the name of the new owner(Domain Admins)"
+
+$permcontinue = $false
+do {
+    switch ($permoption) {
+        default {
+            $permoption = Read-Host -Prompt "Please try again [Y or N]"
+        }
+        Y {
+            #Permissions will be changed
+            if ($option -like "a") {
+            #If option A is selected the $OldOwner is already populated
+            $GPOPerm | ForEach-Object { if($_ | Get-GPPermission -TargetName "$OldOwner" -TargetType User -ErrorAction SilentlyContinue) {$_ | Set-GPPermission -Replace -PermissionLevel None -TargetName "$OldOwner" -TargetType User  -ErrorAction SilentlyContinue}} 
+            $permcontinue = $true
+            }
+            else {
+            #If option B is selected then $OldOwner needs to be populated to change/remove their permissions
+            $OldOwner = Read-Host -Prompt "Name Of User Premissions To Remove"
+            $GPOPerm | ForEach-Object { if($_ | Get-GPPermission -TargetName "$OldOwner" -TargetType User -ErrorAction SilentlyContinue) {$_ | Set-GPPermission -Replace -PermissionLevel None -TargetName "$OldOwner" -TargetType User  -ErrorAction SilentlyContinue}} 
+            $permcontinue = $true
+            }
+            Break
+        }
+        N {
+            #No permissions will be changed
+            $permcontinue = $true
+            Write-Host "Permissions Not Changed By User"
+            Break
+        }
+    }
+}until ($permcontinue -match "True")
+
+#Owner is changed from old owner to new owner
+$table = foreach ($gp in $GPOPerm) {
+    $gpId = "*"+($gp).Id+"*"
+    $Gpo1 = get-adobject -Filter {Name -like $gpId}
+    $Ownr = New-Object System.Security.Principal.SecurityIdentifier (Get-ADObject -Filter {Name -like $NewOwner} -Properties objectSid).objectSid
+    $Acl = Get-ACL -Path "ad:$($Gpo1.DistinguishedName)"
+    $aclBefore = $Acl.GetOwner([System.Security.Principal.NTAccount]).Value
+    $Acl.SetOwner($Ownr)
+    Set-ACL -Path "ad:$($Gpo1.DistinguishedName)" -ACLObject $Acl
+    $aclAfter = (Get-ACL -Path "ad:$($Gpo1.DistinguishedName)").Owner
+
+    new-object psobject -Property @{
+        GPO_Name = $gp.DisplayName
+        Old_Owner = $aclBefore
+        New_Owner = $aclAfter
+    }    
+}
+$table | Format-Table GPO_Name,Old_Owner,New_Owner
