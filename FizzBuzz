@@ -1,0 +1,15 @@
+$fizzbuzz = (1..100)
+foreach ($test in $fizzbuzz) {
+    if ($test%15 -eq 0) {
+        Write-Host "FizzBuzz"
+    }
+    elseif ($test%5 -eq 0){
+        Write-Host "Buzz"
+    }
+    elseif ($test%3 -eq 0){
+        Write-Host "Fizz"
+    }
+    else {
+    Write $test
+    }
+}
