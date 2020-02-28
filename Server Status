@@ -1,0 +1,62 @@
+$ADLocation = "OU=XXXX,OU=XX,DC=XXXXXX,DC=XXX,DC=XXX"
+Write-Host "     To retrieve all server enter a single [*]"
+Write-Host "                     or"
+Write-Host "enter the Name/s To Filter by Wildcards [*] excepted"
+Write-Host "Follow the pattern below to select servers individually"
+$PCFilter = Read-Host -Prompt "Name -like 'vine' -or Name -like 'its-dracosvm2'"
+
+$PCList = Get-ADComputer -Filter $PCFilter -SearchBase $ADLocation -SearchScope 2 -Properties *
+
+#Removes Truncation of DIsplayed Output
+$FormatEnumerationLimit = -1
+
+$newlist = @()
+foreach($PC in $PCList) {
+
+$PCInfo = Get-CimInstance Win32_OperatingSystem -computer $PC.Name  #[need read permissions on all servers]
+$UpTime = $PCInfo.LocalDateTime.DayOfYear - $PCInfo.LastBootUpTime.DayOfYear
+
+    if ($PC.OperatingSystem -like "*Server*") {
+        $itemobject = New-Object –TypeName PSObject
+            $itemobject | Add-Member –MemberType NoteProperty –Name "Server Name" -Value $PC.CN
+            $itemobject | Add-Member –MemberType NoteProperty –Name "Operating System" -Value $PC.OperatingSystem
+            $itemobject | Add-Member –MemberType NoteProperty –Name "Version" -Value $PC.OperatingSystemVersion
+            $itemobject | Add-Member –MemberType NoteProperty –Name "Up Time" -Value $UpTime
+
+            $newlist +=$itemobject
+    }
+}
+
+$HotFix = Get-HotFix -ComputerName its-dracosvm2 -Credential $cred | #[need read permissions on all servers]
+Select HotfixID, Description, InstalledOn |
+Sort-Object InstalledOn
+
+$fixlist = @()
+foreach($Fix in $HotFix) {
+$FixID = $Fix.HotFixID
+    foreach ($PC in $PCList ) { 
+    $fixobject = New-Object –TypeName PSObject
+        $fixobject | Add-Member –MemberType NoteProperty –Name "Server Name" -Value $PC.CN
+        $fixobject | Add-Member –MemberType NoteProperty –Name "HotFix ID" -Value $FixID
+        $fixobject | Add-Member –MemberType NoteProperty –Name "HotFix Description" -Value $Fix.Description
+        $fixobject | Add-Member –MemberType NoteProperty –Name "HotFix Installed On" -Value $Fix.InstalledOn
+
+    $fixlist +=$fixobject
+    }
+}
+
+if ($newlist.count -match '0') {
+    Write-Host "Nothing to see here"
+    break
+}
+else {
+$newlist | Sort-Object -Property "Server Name" | Format-Table -Wrap
+}
+$fixlist | Sort-Object -Property "Server Name" |Format-Table -Wrap
+
+Write-Host "Total Server List ="$PCList.count
+Write-Host "Filtered Server List ="$newlist.count
+Write-Host "Hot Fix List ="$fixlist.count
+
+$newlist | Sort-Object -Property "Server Name" | Format-Table -Wrap | Out-File "C:\Users\$env:UserName\Documents\NewList.txt"
+$fixlist | Sort-Object -Property "Server Name" | Format-Table -Wrap | Out-File "C:\Users\$env:UserName\Documents\FixList.txt"
