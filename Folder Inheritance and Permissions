@@ -1,0 +1,119 @@
+Clear
+$folder = Read-Host -Prompt "Input target Folder i.e.(L:\Depts\AcademicCenter)"
+$User = Read-Host -Prompt "Input User SamAccountName i.e.(Oak-AcademicCenter-admin)"
+
+$delcheck = Read-Host -Prompt "Delete Old Files [Y or N]"
+$delcon = $false
+do {
+    Switch ($delcheck) {    
+        default {
+            $delcheck = Read-Host -Prompt "Please enter Y or N"
+        }
+        Y {
+            Remove-Item -Path C:\Users\trinityz\Documents\FolderList*.txt -ErrorAction SilentlyContinue
+            Remove-Item -Path C:\Users\trinityz\Documents\HasPermissionList*.txt -ErrorAction SilentlyContinue
+            Remove-Item -Path C:\Users\trinityz\Documents\NoPermissionList*.txt -ErrorAction SilentlyContinue
+            Write-Host = "All Old Files DELETED"
+            $delcon = $true
+        }
+        N {
+            Write-Host = "Old Files NOT Deleted"
+            $delcon = $true
+        }
+    }
+} until ($delcon -eq $true)
+
+Write-Host " "
+Write-Host " "
+Write-Host "Would you like to type of check are you wanting to run?"
+Write-Host "IS - Inheritance Status"
+Write-Host "          or"
+Write-Host "PC - Permission Check"
+$checktype = Read-Host -Prompt "IS or PC"
+$checkcon = $false
+do {
+    Switch ($checktype) {    
+        default {
+            $checktype = Read-Host -Prompt "Please enter IS or PC"
+        }
+        IS {
+            $tool = "with Inheritance Disabled"
+            Write-Host "Starting the Check"
+            $pathmany = Get-ChildItem $folder -Recurse -Directory |
+                where { ((Get-ACL -Path $_.Fullname).GetAccessRules($true,$true,[System.Security.Principal.NTAccount]).IsInherited -notcontains $true) -eq $true}
+            $checkcon = $true
+        }
+        PC {
+            $tool = "Found"
+            Write-Host "Starting the Check"
+            $pathmany = Get-ChildItem $folder -Recurse -Directory
+            $checkcon = $true
+        }
+    }
+} until ($checkcon -eq $true)
+$NoPermReport = @()
+$HasPermReport = @()
+
+$total = $pathmany.count
+$bad = 0
+$good = 0
+$fullcontrol = 0
+Write-Host "List of users permission for each folder found in target folder with inheritance disabled"
+foreach ($item in $pathmany) {
+    $path = $item.FullName
+    $permission = (Get-Acl $path).Access |
+        where {
+            $_.IdentityReference -match $User
+            } |
+            Select IdentityReference,FileSystemRights
+        If ($permission) {
+            $permission |
+                ForEach {
+                    Write-Host "[$($_.FileSystemRights)] in $path"
+                    Start-Sleep -Milliseconds 10
+                    $itemHasPerm = New-Object –TypeName PSObject
+                    $itemHasPerm | Add-Member –MemberType NoteProperty –Name "Permission" -Value $permission.FileSystemRights
+                    $itemHasPerm | Add-Member –MemberType NoteProperty –Name "Folder Path" -Value $path
+                    $HasPermReport += $itemHasPerm
+                }
+                    if ($permission.FileSystemRights -like "FullControl") {
+                    $fullcontrol += 1
+                    }
+                    else {
+                    continue
+                    }
+        }
+        Else {
+            Write-Host "[NO PERMISSIONS] ", "in $path" -ForegroundColor Red
+            Start-Sleep -Milliseconds 50
+                    Start-Sleep -Milliseconds 10
+                    $itemNoPerm = New-Object –TypeName PSObject
+                    $itemNoPerm | Add-Member –MemberType NoteProperty –Name "Permission" -Value "NO PERMISSIONS"
+                    $itemNoPerm | Add-Member –MemberType NoteProperty –Name "Folder Path" -Value $path
+                    $NoPermReport += $itemNoPerm
+            $bad += 1
+        }
+}
+
+$good = $total - $bad - $fullcontrol
+$time = (Get-Date).tostring("hh-mm-ss - dd-MMM-yy")
+$time
+if ($checktype -like "IS") {
+Write-Host "List of folders with full path names with INHERITANCE DISABLED"
+Write-Host "has been exported to your Document Folder as 'FolderList.txt'"
+$pathmany.FullName | Format-Table -Auto | Out-File "$env:USERPROFILE\Documents\FolderList - $time.txt"
+}
+$NoPermReport | Format-Table -Auto | Out-File "$env:USERPROFILE\Documents\NoPermissionList - $time.txt"
+$HasPermReport | Format-Table -Auto | Out-File "$env:USERPROFILE\Documents\HasPermissionList - $time.txt"
+Write-Host " "
+
+Write-Host "File name is NonInheritanceFolders.txt"
+Write-Host " "
+Write-Host "Total Folders $tool"
+Write-Host $pathmany.count -ForegroundColor Yellow
+Write-Host "User Has FullControl"
+Write-Host $fullcontrol -ForegroundColor Green
+Write-Host "User Has Permissions"
+Write-Host $good -ForegroundColor Cyan
+Write-Host "User Permissions Do Not Exist"
+Write-Host $bad -ForegroundColor Red
