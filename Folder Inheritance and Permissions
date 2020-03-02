@@ -1,35 +1,23 @@
+<#
+Checks permissions of target user in all subfolders of the target folder and the user.
+Script to check if inheritance is disabled in all subfolders of the target folder.
+Trinity Zamrzla (2 March 2020)
+#>
+
 Clear
+$targetname = Read-Host -Prompt "Input User SamAccountName i.e.(Oak-AcademicCenter-admin)"
+Write-Host " "
 $folder = Read-Host -Prompt "Input target Folder i.e.(L:\Depts\AcademicCenter)"
-$User = Read-Host -Prompt "Input User SamAccountName i.e.(Oak-AcademicCenter-admin)"
-
-$delcheck = Read-Host -Prompt "Delete Old Files [Y or N]"
-$delcon = $false
-do {
-    Switch ($delcheck) {    
-        default {
-            $delcheck = Read-Host -Prompt "Please enter Y or N"
-        }
-        Y {
-            Remove-Item -Path C:\Users\trinityz\Documents\FolderList*.txt -ErrorAction SilentlyContinue
-            Remove-Item -Path C:\Users\trinityz\Documents\HasPermissionList*.txt -ErrorAction SilentlyContinue
-            Remove-Item -Path C:\Users\trinityz\Documents\NoPermissionList*.txt -ErrorAction SilentlyContinue
-            Write-Host = "All Old Files DELETED"
-            $delcon = $true
-        }
-        N {
-            Write-Host = "Old Files NOT Deleted"
-            $delcon = $true
-        }
-    }
-} until ($delcon -eq $true)
-
 Write-Host " "
+Write-Host "   What Check To Run"
 Write-Host " "
-Write-Host "Would you like to type of check are you wanting to run?"
 Write-Host "IS - Inheritance Status"
 Write-Host "          or"
 Write-Host "PC - Permission Check"
+Write-Host " "
 $checktype = Read-Host -Prompt "IS or PC"
+Write-Host " "
+
 $checkcon = $false
 do {
     Switch ($checktype) {    
@@ -58,12 +46,14 @@ $total = $pathmany.count
 $bad = 0
 $good = 0
 $fullcontrol = 0
+Write-Host " "
 Write-Host "List of users permission for each folder found in target folder with inheritance disabled"
+Write-Host " "
 foreach ($item in $pathmany) {
     $path = $item.FullName
     $permission = (Get-Acl $path).Access |
         where {
-            $_.IdentityReference -match $User
+            $_.IdentityReference -match $targetname
             } |
             Select IdentityReference,FileSystemRights
         If ($permission) {
@@ -96,17 +86,24 @@ foreach ($item in $pathmany) {
 }
 
 $good = $total - $bad - $fullcontrol
-$time = (Get-Date).tostring("hh-mm-ss - dd-MMM-yy")
-$time
-if ($checktype -like "IS") {
-Write-Host "List of folders with full path names with INHERITANCE DISABLED"
-Write-Host "has been exported to your Document Folder as 'FolderList.txt'"
-$pathmany.FullName | Format-Table -Auto | Out-File "$env:USERPROFILE\Documents\FolderList - $time.txt"
-}
-$NoPermReport | Format-Table -Auto | Out-File "$env:USERPROFILE\Documents\NoPermissionList - $time.txt"
-$HasPermReport | Format-Table -Auto | Out-File "$env:USERPROFILE\Documents\HasPermissionList - $time.txt"
-Write-Host " "
+$timestamp = (Get-Date).tostring("dd-MMM-yyyy")
+$profile = "$($env:USERPROFILE)\Documents\"
 
+if ($checktype -like "IS") {
+Write-Host " "
+Write-Host "List of folders with full path names with INHERITANCE DISABLED"
+Write-Host "was exported to your Document Folder as 'FolderList.txt'"
+$pathmany.FullName | Format-Table -Auto | Out-File "$profile\$targetname - InheritanceDisabled - $timestamp.txt"
+Write-Host " "
+Write-Host "Total Folders $tool"
+Write-Host $pathmany.count -ForegroundColor Yellow
+break
+}
+$NoPermReport | Format-Table -Auto | Out-File "$profile\$targetname - NoPermissions - $timestamp.txt"
+$HasPermReport | where {$_.Permission -notlike "FullControl"}| Format-Table -Auto | Out-File "$profile\$targetname - OtherPermissions - $timestamp.txt"
+$HasPermReport | where {$_.Permission -like "FullControl"}| Format-Table -Auto | Out-File "$profile\$targetname - FullContorl - $timestamp.txt"
+
+Write-Host " "
 Write-Host "File name is NonInheritanceFolders.txt"
 Write-Host " "
 Write-Host "Total Folders $tool"
