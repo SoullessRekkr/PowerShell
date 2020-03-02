@@ -1,0 +1,89 @@
+Clear
+$action = Read-Host -Prompt "SUSID Action [Query Compare or Both]"
+$checkcon = $false
+$query = $false
+$compare = $false
+$both = $false
+do {
+    Switch ($action){
+        default{
+            $action = Read-Host -Prompt "Please enter Query or Compare"
+        }
+        Query{
+            $query = $true
+            $checkcon = $true
+        }
+        Compare{
+            $file = Test-Path -LiteralPath "$env:USERProfile\Documents\SUSList.csv"
+            if ($file -eq $false){
+                Write-Host " "
+                Write-Host "File Not Found - Run A Query First" -ForegroundColor Red
+                $both = $true
+                $checkcon = $true
+            }
+            else {
+                $compare = $true
+                $checkcon = $true
+            }
+        }
+        Both{
+            $both = $true
+            $checkcon = $true
+        }
+    }
+}until ($checkcon -eq $true)
+
+if ($query -or $both -eq $true) {
+$ADLocation = "OU=XXX,OU=XXXXXX,DC=XXXXXX,DC=XXX,DC=XXXX"
+Write-Host " "
+Write-Host "Enter the names of the servers to query, enter the servers like the example below"
+Write-Host "                                  Example"
+Write-Host "                             Name -like 'vine'"
+Write-Host "                                  Example"
+Write-Host "    Name -like 'XXXX' -or Name -like 'XXXX' -or Name -like 'XXXX'"
+Write-Host "                   Use a wildcard [*] to query all servers"
+Write-Host " "
+$PCFilter = Read-Host -Prompt "Enter Servers"
+$PCList = Get-ADComputer -Filter "$PCFilter" -SearchBase $ADLocation -SearchScope 2 -Properties *
+
+$SUSList = @()
+
+foreach ($PC in $PCList) {
+    $target = $PC.Name
+    if ($PC.OperatingSystem -like "*Server*") {
+        $Reg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $target)
+        $RegKey = $Reg.OpenSubKey("SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate")
+        $SUSID = $RegKey.GetValue("SusClientId")
+        $itemobject = New-Object –TypeName PSObject
+            $itemobject | Add-Member –MemberType NoteProperty –Name "Server" -Value $target
+            $itemobject | Add-Member –MemberType NoteProperty –Name "SUSID" -Value $SUSID
+
+            $SUSList +=$itemobject
+    }
+}
+$SUSList | Export-CSV -Append $env:USERProfile\Documents\SUSList.csv
+Write-Host " "
+Write-Host "Server Names and SUS ID's written to CSV file" -ForegroundColor Green
+if ($query -eq $true -and $both -eq $false){
+Write-Host " "
+Write-Host "Rerun the script and choose Compare to compare the above file" -ForegroundColor Yellow
+}
+}
+
+if ($compare -or $both -eq $true){
+    $import = Import-CSV $env:USERProfile\Documents\SUSList.csv
+    $DupSUSID = $import | 
+    Sort-Object SUSID |
+        Group-Object -Property SUSID |
+            Where-Object -FilterScript {
+                $_.Count -gt 1
+            } |
+                Select-Object -ExpandProperty Group
+    if ($DupSUSID.count -eq 0) {
+        Write-Host " "
+        Write-Host "No Duplicate Found" -ForegroundColor Green
+    }
+    else {
+        $DupSUSID
+    }
+}
